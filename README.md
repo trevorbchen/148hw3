@@ -1,6 +1,12 @@
 # EE/CS 148B HW 3 — Vision-Language Models
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/trevorbchen/148hw3/blob/main/colab_setup.ipynb)
+
 Starter code for HW 3 of EE/CS 148B (Spring 2026). See `hw3.pdf` (in the assignment release) for the writeup.
+
+## Quick start (Colab)
+
+Click the **Open in Colab** badge above. The notebook clones this repo, installs dependencies, and imports everything. Switch the runtime to GPU before running (T4/L4 for §2/§3/§4, A100 for §5/§6).
 
 ## Repository Layout
 

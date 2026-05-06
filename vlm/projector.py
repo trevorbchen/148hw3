@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class VisionLanguageProjector(nn.Module):
@@ -27,9 +28,12 @@ class VisionLanguageProjector(nn.Module):
 
     def __init__(self, d_image: int, d_decoder: int, expansion: int = 4) -> None:
         super().__init__()
-        # TODO: implement.
-        raise NotImplementedError
+        d_hidden = expansion * d_image
+        self.fc1 = nn.Linear(d_image, d_hidden)
+        self.fc2 = nn.Linear(d_hidden, d_decoder)
 
     def forward(self, image_features: torch.Tensor) -> torch.Tensor:
-        # TODO: handle both (B, d_image) and (B, N, d_image) inputs.
-        raise NotImplementedError
+        if image_features.dim() == 2:
+            image_features = image_features.unsqueeze(1)  # (B, 1, d_image)
+        h = F.gelu(self.fc1(image_features))
+        return self.fc2(h)

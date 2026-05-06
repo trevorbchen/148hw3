@@ -21,6 +21,8 @@ from typing import Literal
 import torch
 import torch.nn as nn
 
+from vlm.masking import build_image_bidir_mask
+
 InjectionMode = Literal["cls", "all_patches", "interleaved"]
 MaskMode = Literal["causal", "image_bidir"]
 
@@ -42,9 +44,8 @@ class VisionLanguageModel(nn.Module):
         input_ids:      (B, T) tokenized text.
         attention_mask: (B, T) text attention mask from the tokenizer.
         labels:         (B, T) for loss computation, or None for inference.
-                        Visual-token positions must be set to -100 in labels
-                        before being passed in (so they're masked out by HF's
-                        loss).
+                        Visual-token positions are filled with -100 internally
+                        so they're masked out of HF's loss.
         injection:      One of "cls", "all_patches", "interleaved".
         mask_mode:      One of "causal", "image_bidir".
 
@@ -69,6 +70,91 @@ class VisionLanguageModel(nn.Module):
         self.tokenizer = tokenizer
         self.image_token_id = image_token_id
 
+    def _encode_images(self, images: torch.Tensor, injection: InjectionMode) -> torch.Tensor:
+        """Run ViT and projector. Returns (B, N_vis, d_decoder)."""
+        if injection == "cls":
+            visual_features = self.vit(images)                     # (B, d_image)
+        else:
+            visual_features = self.vit(images, return_all_tokens=True)  # (B, N+1, d_image)
+        visual_embeds = self.projector(visual_features)            # (B, N_vis, d_decoder)
+        return visual_embeds
+
+    def _stitch_prepend(
+        self,
+        visual_embeds: torch.Tensor,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """Prepend visual tokens to text tokens (cls / all_patches modes)."""
+        B, n_visual, _ = visual_embeds.shape
+        text_embeds = self.decoder.get_input_embeddings()(input_ids)  # (B, T_text, d)
+        stitched = torch.cat([visual_embeds, text_embeds], dim=1)
+        visual_attn = torch.ones(
+            B, n_visual, dtype=attention_mask.dtype, device=attention_mask.device
+        )
+        stitched_attn = torch.cat([visual_attn, attention_mask], dim=1)
+        if labels is not None:
+            visual_labels = torch.full(
+                (B, n_visual), -100, dtype=labels.dtype, device=labels.device
+            )
+            stitched_labels = torch.cat([visual_labels, labels], dim=1)
+        else:
+            stitched_labels = None
+        return stitched, stitched_attn, stitched_labels
+
+    def _stitch_interleaved(
+        self,
+        visual_embeds: torch.Tensor,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        labels: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """Replace each occurrence of self.image_token_id in input_ids with the
+        full visual patch sequence."""
+        if self.image_token_id is None:
+            raise ValueError("image_token_id must be set for 'interleaved' injection")
+        B, n_visual, d = visual_embeds.shape
+        text_embeds = self.decoder.get_input_embeddings()(input_ids)
+
+        new_embeds, new_attn, new_labels = [], [], []
+        for b in range(B):
+            ids = input_ids[b]
+            img_pos = (ids == self.image_token_id).nonzero(as_tuple=True)[0]
+            if len(img_pos) != 1:
+                raise ValueError(
+                    f"Expected exactly one <image> token per sequence, got {len(img_pos)}"
+                )
+            pos = img_pos.item()
+
+            new_embeds.append(
+                torch.cat(
+                    [text_embeds[b, :pos], visual_embeds[b], text_embeds[b, pos + 1 :]],
+                    dim=0,
+                )
+            )
+            new_attn.append(
+                torch.cat(
+                    [
+                        attention_mask[b, :pos],
+                        torch.ones(n_visual, dtype=attention_mask.dtype, device=attention_mask.device),
+                        attention_mask[b, pos + 1 :],
+                    ],
+                    dim=0,
+                )
+            )
+            if labels is not None:
+                lb = labels[b]
+                visual_labels = torch.full(
+                    (n_visual,), -100, dtype=lb.dtype, device=lb.device
+                )
+                new_labels.append(torch.cat([lb[:pos], visual_labels, lb[pos + 1 :]], dim=0))
+
+        stitched = torch.stack(new_embeds, dim=0)
+        stitched_attn = torch.stack(new_attn, dim=0)
+        stitched_labels = torch.stack(new_labels, dim=0) if labels is not None else None
+        return stitched, stitched_attn, stitched_labels
+
     def forward(
         self,
         images: torch.Tensor,
@@ -78,21 +164,32 @@ class VisionLanguageModel(nn.Module):
         injection: InjectionMode = "cls",
         mask_mode: MaskMode = "causal",
     ) -> dict:
-        # TODO: implement.
-        # Sketch:
-        #   1. Encode images with self.vit to get visual features.
-        #      - "cls" -> (B, 1, d_image)
-        #      - "all_patches" / "interleaved" -> (B, N+1, d_image)
-        #        (you'll need to add a `return_all_tokens=True` flag to your ViT)
-        #   2. Project to decoder dim with self.projector.
-        #   3. Get text embeddings from the decoder's embed layer.
-        #   4. Stitch visual and text tokens together according to `injection`.
-        #   5. If `mask_mode == "image_bidir"`, build a custom 4D attention mask
-        #      with vlm.masking.build_image_bidir_mask() and pass it to the
-        #      decoder. Otherwise let the decoder use its default causal mask.
-        #   6. Run the decoder with inputs_embeds=stitched, labels=adjusted_labels.
-        #   7. Return {"loss": ..., "logits": ...}.
-        raise NotImplementedError
+        visual_embeds = self._encode_images(images, injection)
+        n_visual = visual_embeds.shape[1]
+
+        if injection in ("cls", "all_patches"):
+            stitched, stitched_attn, stitched_labels = self._stitch_prepend(
+                visual_embeds, input_ids, attention_mask, labels
+            )
+        else:  # interleaved
+            stitched, stitched_attn, stitched_labels = self._stitch_interleaved(
+                visual_embeds, input_ids, attention_mask, labels
+            )
+
+        decoder_kwargs = dict(inputs_embeds=stitched, labels=stitched_labels)
+
+        if mask_mode == "image_bidir" and injection in ("cls", "all_patches"):
+            B, T_total, _ = stitched.shape
+            n_text = T_total - n_visual
+            mask4d = build_image_bidir_mask(
+                n_visual, n_text, stitched.device, stitched.dtype
+            ).expand(B, -1, -1, -1)
+            decoder_kwargs["attention_mask"] = mask4d
+        else:
+            decoder_kwargs["attention_mask"] = stitched_attn
+
+        output = self.decoder(**decoder_kwargs)
+        return {"loss": output.loss, "logits": output.logits}
 
     @torch.no_grad()
     def generate(
@@ -107,5 +204,30 @@ class VisionLanguageModel(nn.Module):
 
         Useful for §5's qualitative evaluation problem (vlm_qualitative).
         """
-        # TODO: implement.
-        raise NotImplementedError
+        device = next(self.decoder.parameters()).device
+        tokenized = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+        ).to(device)
+        input_ids = tokenized["input_ids"]
+        attention_mask = tokenized["attention_mask"]
+
+        visual_embeds = self._encode_images(images, injection)
+        if injection in ("cls", "all_patches"):
+            stitched, stitched_attn, _ = self._stitch_prepend(
+                visual_embeds, input_ids, attention_mask, None
+            )
+        else:
+            stitched, stitched_attn, _ = self._stitch_interleaved(
+                visual_embeds, input_ids, attention_mask, None
+            )
+
+        out_ids = self.decoder.generate(
+            inputs_embeds=stitched,
+            attention_mask=stitched_attn,
+            max_new_tokens=max_new_tokens,
+            **gen_kwargs,
+        )
+        return self.tokenizer.batch_decode(out_ids, skip_special_tokens=True)
