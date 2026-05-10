@@ -146,7 +146,8 @@ def main() -> None:
     # ---------------------------------------------------------------- ViT
     ckpt = torch.load(args.pretrained_vit, map_location="cpu")
     vit_cfg = ckpt["config"]["vit"]
-    vit = ViT(**vit_cfg)
+    pos_encoding = ckpt.get("pos_encoding", "learned")
+    vit = ViT(**vit_cfg, pos_encoding=pos_encoding)
     vit.load_state_dict(ckpt["vit"])
     vit = vit.to(device)
 

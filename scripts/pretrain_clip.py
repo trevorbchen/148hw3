@@ -39,9 +39,17 @@ from vlm.eval import zeroshot_classification_accuracy
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--config", type=Path, required=True)
-    p.add_argument("--output-dir", type=Path, default=Path("runs/clip_eurosat"))
+    p.add_argument("--output-dir", type=Path, default=None)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--wandb", action="store_true", help="Log to W&B")
+    p.add_argument(
+        "--pos-encoding", choices=["learned", "rope1d", "rope2d"], default="learned",
+        help="Positional encoding for the ViT (§6 ablation)",
+    )
+    p.add_argument(
+        "--extrapolation-img-size", type=int, default=None,
+        help="If set, evaluate on EuroSAT upsampled to this size after training (§6 length extrapolation)",
+    )
     return p.parse_args()
 
 
@@ -50,6 +58,8 @@ def main() -> None:
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
+    if args.output_dir is None:
+        args.output_dir = Path("runs") / f"clip_eurosat_{args.pos_encoding}"
     args.output_dir.mkdir(parents=True, exist_ok=True)
     logger = RunLogger(args.output_dir)
     device = torch.device(args.device)
@@ -67,7 +77,7 @@ def main() -> None:
     )
 
     # ---------------------------------------------------------------- model
-    vit = ViT(**cfg["vit"]).to(device)
+    vit = ViT(**cfg["vit"], pos_encoding=args.pos_encoding).to(device)
     text_encoder = FrozenTextEncoder(cfg["text_encoder"]["model_name"]).to(device)
     projection = ProjectionHeads(
         d_image=cfg["vit"]["d_model"],
@@ -156,6 +166,7 @@ def main() -> None:
                         "projection": projection.state_dict(),
                         "logit_scale": logit_scale.detach().cpu(),
                         "config": cfg,
+                        "pos_encoding": args.pos_encoding,
                         "epoch": epoch,
                         "val_acc": val_acc,
                     },
@@ -173,6 +184,21 @@ def main() -> None:
         class_prompts, class_indices, device,
     )
 
+    # Length-extrapolation eval (§6.1)
+    extrap_acc = None
+    if args.extrapolation_img_size is not None:
+        from vlm.data import build_eurosat_loaders as _b
+        _, ext_val_dl, _ = _b(
+            img_size=args.extrapolation_img_size,
+            batch_size=cfg["train"]["batch_size"],
+            num_workers=cfg["train"]["num_workers"],
+        )
+        extrap_acc = zeroshot_classification_accuracy(
+            vit, projection, text_encoder, ext_val_dl,
+            class_prompts, class_indices, device,
+        )
+        print(f"[extrapolation @ {args.extrapolation_img_size}] val acc = {extrap_acc:.4f}")
+
     # ---------------------------------------------------------------- plots
     logger.line_plot("step", "loss", "loss.png",
                      title="CLIP train loss", xlabel="step", ylabel="loss")
@@ -184,8 +210,11 @@ def main() -> None:
                      title="Zero-shot val accuracy", xlabel="epoch", ylabel="accuracy")
 
     metrics = {
+        "pos_encoding": args.pos_encoding,
         "best_val_acc": best_val_acc,
         "test_acc": test_acc,
+        "extrapolation_img_size": args.extrapolation_img_size,
+        "extrapolation_val_acc": extrap_acc,
         "best_epoch": int(ckpt["epoch"]),
         "wall_time_sec": elapsed,
         "total_steps": step,
