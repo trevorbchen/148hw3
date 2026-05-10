@@ -66,11 +66,23 @@ def main() -> None:
         dtype_str
     ]
 
-    decoder = AutoModelForCausalLM.from_pretrained(
-        cfg["decoder"]["model_name"],
-        torch_dtype=torch_dtype,
-        attn_implementation=cfg["decoder"].get("attn_implementation", "sdpa"),
-    )
+    attn_impl = cfg["decoder"].get("attn_implementation", "sdpa")
+    try:
+        decoder = AutoModelForCausalLM.from_pretrained(
+            cfg["decoder"]["model_name"],
+            torch_dtype=torch_dtype,
+            attn_implementation=attn_impl,
+        )
+    except (ImportError, ValueError) as e:
+        if "flash" in str(e).lower() and attn_impl != "sdpa":
+            print(f"[warn] {attn_impl} unavailable ({e}); falling back to sdpa")
+            decoder = AutoModelForCausalLM.from_pretrained(
+                cfg["decoder"]["model_name"],
+                torch_dtype=torch_dtype,
+                attn_implementation="sdpa",
+            )
+        else:
+            raise
     tokenizer = AutoTokenizer.from_pretrained(cfg["decoder"]["model_name"])
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
