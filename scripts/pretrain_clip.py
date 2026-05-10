@@ -84,7 +84,9 @@ def main() -> None:
         d_text=text_encoder.embedding_dim,
         d_proj=cfg["projection"]["d_proj"],
     ).to(device)
-    logit_scale = init_logit_scale().to(device)
+    # Re-wrap as Parameter after .to() — calling .to() on a free Parameter
+    # makes it a non-leaf tensor that AdamW refuses to optimize.
+    logit_scale = nn.Parameter(init_logit_scale().data.to(device))
 
     trainable_params = (
         list(vit.parameters()) + list(projection.parameters()) + [logit_scale]
