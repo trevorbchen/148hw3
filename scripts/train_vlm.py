@@ -105,9 +105,10 @@ def evaluate(model, val_loader, injection, max_examples, device, generation_kwar
     model.eval()
     preds, golds, q_types = [], [], []
     seen = 0
+    image_dtype = next(model.vit.patch_embed.proj.parameters()).dtype
     with torch.no_grad():
         for batch in val_loader:
-            images = batch["image"].to(device)
+            images = batch["image"].to(device).to(image_dtype)
             questions = batch["question"]
             answers = batch["answer"]
             # Plain prompt format; for "interleaved" mode prepend the <image> token.
