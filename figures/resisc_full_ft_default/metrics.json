@@ -1,0 +1,11 @@
+{
+  "method": "full_ft",
+  "rank": null,
+  "best_test_acc": 0.6174603174603175,
+  "trainable_params": 10755117,
+  "total_params": 10755117,
+  "trainable_fraction": 1.0,
+  "peak_memory_mb": 1632.80859375,
+  "wall_time_sec": 111.72424793243408,
+  "total_steps": 1470
+}

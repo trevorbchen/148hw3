@@ -1,0 +1,11 @@
+{
+  "method": "lora",
+  "rank": 8,
+  "best_test_acc": 0.396984126984127,
+  "trainable_params": 275373,
+  "total_params": 11013165,
+  "trainable_fraction": 0.025003983868397504,
+  "peak_memory_mb": 1111.986328125,
+  "wall_time_sec": 130.17866563796997,
+  "total_steps": 1470
+}

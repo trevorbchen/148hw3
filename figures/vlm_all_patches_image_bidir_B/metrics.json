@@ -1,0 +1,25 @@
+{
+  "best_val_acc": 0.066,
+  "best_val_acc_by_qtype": {
+    "exist": 0.03333333333333333,
+    "compare_attr": 0.0,
+    "spatial": 0.10256410256410256,
+    "count": 0.0,
+    "query_attr": 0.0707070707070707
+  },
+  "trainable_params": 363888000,
+  "peak_memory_mb": 10215.98095703125,
+  "wall_time_sec": 360.68137884140015,
+  "total_steps": 2000,
+  "args": {
+    "config": "configs/vlm_clevr.yaml",
+    "pretrained_vit": "runs/clip_eurosat_learned/best.pt",
+    "injection": "all_patches",
+    "mask_mode": "image_bidir",
+    "freeze_config": "B",
+    "lora_rank": 8,
+    "lora_alpha": 16.0,
+    "output_dir": "runs/vlm_all_patches_image_bidir_B",
+    "device": "cuda"
+  }
+}

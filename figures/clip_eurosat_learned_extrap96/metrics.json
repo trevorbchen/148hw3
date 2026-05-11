@@ -1,0 +1,11 @@
+{
+  "pos_encoding": "learned",
+  "best_val_acc": 0.9108910891089109,
+  "test_acc": 0.9072481572481572,
+  "extrapolation_img_size": 96,
+  "extrapolation_val_acc": 0.7858910891089109,
+  "best_epoch": 17,
+  "wall_time_sec": 175.13421273231506,
+  "total_steps": 1000,
+  "trainable_params": 10934401
+}

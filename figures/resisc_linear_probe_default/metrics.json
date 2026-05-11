@@ -1,0 +1,11 @@
+{
+  "method": "linear_probe",
+  "rank": null,
+  "best_test_acc": 0.38634920634920633,
+  "trainable_params": 17325,
+  "total_params": 10755117,
+  "trainable_fraction": 0.0016108611370754962,
+  "peak_memory_mb": 198.564453125,
+  "wall_time_sec": 98.73936629295349,
+  "total_steps": 1470
+}

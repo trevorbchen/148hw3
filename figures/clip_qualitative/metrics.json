@@ -1,0 +1,17 @@
+{
+  "val_accuracy": 0.9102722772277227,
+  "per_class_accuracy": {
+    "Annual Crop": 0.916201114654541,
+    "Forest": 0.8539325594902039,
+    "Herbaceous Vegetation": 0.9329608678817749,
+    "Highway": 0.8733333349227905,
+    "Industrial Buildings": 0.9597315192222595,
+    "Pasture": 0.8571428656578064,
+    "Permanent Crop": 0.8648648858070374,
+    "Residential Buildings": 0.9784946441650391,
+    "River": 0.8561643958091736,
+    "Sea or Lake": 0.9725274443626404
+  },
+  "num_eval": 1616,
+  "checkpoint": "runs/clip_eurosat_learned/best.pt"
+}

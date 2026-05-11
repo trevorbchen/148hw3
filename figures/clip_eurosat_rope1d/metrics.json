@@ -1,0 +1,11 @@
+{
+  "pos_encoding": "rope1d",
+  "best_val_acc": 0.9108910891089109,
+  "test_acc": 0.9011056511056511,
+  "extrapolation_img_size": null,
+  "extrapolation_val_acc": null,
+  "best_epoch": 15,
+  "wall_time_sec": 194.55484223365784,
+  "total_steps": 1000,
+  "trainable_params": 10909441
+}
