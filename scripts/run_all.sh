@@ -56,7 +56,9 @@ if [[ "$PHASES" == *clip_qual* ]]; then
 fi
 
 # ----- §4.2 RESISC adaptation comparison ------------------------------------
-if [[ "$PHASES" == *resisc* && "$PHASES" != *resisc_sweep* ]]; then
+# Use " resisc " (with spaces) to match the standalone phase name, not the
+# resisc_sweep prefix.
+if [[ " $PHASES " == *" resisc "* ]]; then
     if ! skippable runs/resisc_linear_probe_default/metrics.json; then
         run python scripts/finetune_resisc.py --config configs/lora_resisc.yaml \
             --method linear_probe --pretrained "$PRETRAINED_VIT"
@@ -128,8 +130,8 @@ if [[ "$PHASES" == *vlm_qual* ]]; then
     fi
 fi
 
-# ----- §6.1 / §6.2 RoPE pretraining -----------------------------------------
-if [[ "$PHASES" == *rope* && "$PHASES" != *rope_extrap* ]]; then
+# ----- §6.1 / §6.2 RoPE pretraining (rope phase, NOT rope_extrap) -----------
+if [[ " $PHASES " == *" rope "* ]]; then
     for pe in rope1d rope2d; do
         if ! skippable "runs/clip_eurosat_${pe}/metrics.json"; then
             run python scripts/pretrain_clip.py --config configs/clip_eurosat.yaml \
@@ -139,17 +141,18 @@ if [[ "$PHASES" == *rope* && "$PHASES" != *rope_extrap* ]]; then
 fi
 
 # ----- §6.1 length extrapolation eval ---------------------------------------
+# Re-runs each pretrain_clip variant from scratch but with --extrapolation-img-size 96.
+# Cheap because best.pt is cached for the train-size run; we only need
+# the extrapolation_val_acc field. Result is written to a sibling dir.
 if [[ "$PHASES" == *rope_extrap* ]]; then
     for pe in learned rope1d rope2d; do
-        ckpt="runs/clip_eurosat_${pe}/best.pt"
-        if [[ ! -f "$ckpt" ]]; then
-            echo "[skip] missing $ckpt — train ${pe} first"
-            continue
+        out="runs/clip_eurosat_${pe}_extrap96"
+        if ! skippable "$out/metrics.json"; then
+            run python scripts/pretrain_clip.py --config configs/clip_eurosat.yaml \
+                --pos-encoding "$pe" \
+                --extrapolation-img-size 96 \
+                --output-dir "$out"
         fi
-        # Re-run the val/test pass with --extrapolation-img-size 96
-        # Note: we have to re-run training; simplest is to wrap the eval logic
-        # standalone, but for now this serves as a TODO marker.
-        echo "TODO: standalone extrapolation eval for $pe (re-run pretrain_clip with --extrapolation-img-size 96)"
     done
 fi
 
