@@ -147,6 +147,13 @@ def main() -> None:
             else:
                 prompts = [f"Question: {q} Answer:" for q in questions]
             outs = model.generate(images, prompts, injection=injection, **cfg["generation"])
+            if seen == 0:
+                print("---- first batch of predictions ----")
+                for q, a, p in zip(questions[:5], answers[:5], outs[:5]):
+                    print(f"  Q: {q!r}")
+                    print(f"  A: {a!r}")
+                    print(f"  pred: {p!r}")
+                    print()
             preds.extend(outs)
             golds.extend(answers)
             q_types.extend(qts)

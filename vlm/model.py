@@ -224,10 +224,15 @@ class VisionLanguageModel(nn.Module):
                 visual_embeds, input_ids, attention_mask, None
             )
 
+        # max_new_tokens may also be present in gen_kwargs (from a config); the
+        # named parameter wins, so drop it from kwargs to avoid TypeError.
+        gen_kwargs.pop("max_new_tokens", None)
         out_ids = self.decoder.generate(
             inputs_embeds=stitched,
             attention_mask=stitched_attn,
             max_new_tokens=max_new_tokens,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
             **gen_kwargs,
         )
         return self.tokenizer.batch_decode(out_ids, skip_special_tokens=True)

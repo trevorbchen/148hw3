@@ -117,6 +117,8 @@ def evaluate(model, val_loader, injection, max_examples, device, generation_kwar
             else:
                 prompts = [f"Question: {q} Answer:" for q in questions]
             outs = model.generate(images, prompts, injection=injection, **generation_kwargs)
+            if seen == 0:
+                print(f"  sample preds: {list(zip(answers[:3], outs[:3]))}")
             preds.extend(outs)
             golds.extend(answers)
             q_types.extend(batch["q_type"])
@@ -235,15 +237,28 @@ def main() -> None:
         questions = batch["question"]
         answers = batch["answer"]
         if args.injection == "interleaved":
-            prompts = [f"<image> Question: {q} Answer: {a}" for q, a in zip(questions, answers)]
+            full_prompts = [f"<image> Question: {q} Answer: {a}{tokenizer.eos_token}"
+                            for q, a in zip(questions, answers)]
+            prefix_prompts = [f"<image> Question: {q} Answer:" for q in questions]
         else:
-            prompts = [f"Question: {q} Answer: {a}" for q, a in zip(questions, answers)]
-        tok = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(device)
+            full_prompts = [f"Question: {q} Answer: {a}{tokenizer.eos_token}"
+                            for q, a in zip(questions, answers)]
+            prefix_prompts = [f"Question: {q} Answer:" for q in questions]
+
+        tok = tokenizer(full_prompts, return_tensors="pt", padding=True, truncation=True).to(device)
+        prefix_tok = tokenizer(prefix_prompts, return_tensors="pt", padding=True, truncation=True).to(device)
         input_ids = tok["input_ids"]
         attention_mask = tok["attention_mask"]
         labels = input_ids.clone()
         # Mask padding from loss
         labels[attention_mask == 0] = -100
+        # Answer-only loss: mask out question/prompt tokens per row so only the
+        # answer (+ EOS) contributes to the loss. Without this, the model spends
+        # most of its training signal predicting the question back to itself
+        # and the actual answer tokens barely move the loss.
+        prefix_lens = prefix_tok["attention_mask"].sum(dim=1)  # (B,)
+        for b in range(input_ids.shape[0]):
+            labels[b, : prefix_lens[b]] = -100
 
         out = model(
             images=images,
